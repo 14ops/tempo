@@ -4,6 +4,7 @@ export type TimeSignature = {
 };
 
 export type SoundType = 'classic' | 'woodblock' | 'cowbell' | 'beep' | 'electronic';
+export type Subdivision = 1 | 2 | 3 | 4; // 1 (none), 2 (8ths), 3 (triplets), 4 (16ths)
 
 export type MetronomeTrack = {
   id: string;
@@ -29,6 +30,10 @@ export type MetronomeState = {
   soundType: SoundType;
   tracks: MetronomeTrack[];
   visualStyle: VisualStyle;
+  subdivision: Subdivision;
+  accentSubdivisions: boolean;
+  tempoRamp?: { targetBpm: number; bars: number; currentBar: number };
+  presets: { id: string; name: string; state: Partial<MetronomeState> }[];
 };
 
 export const DEFAULT_STATE: MetronomeState = {
@@ -40,6 +45,9 @@ export const DEFAULT_STATE: MetronomeState = {
   accentAudioStyle: 'pitch',
   accentVisualStyle: 'flash',
   soundType: 'classic',
+  subdivision: 1,
+  accentSubdivisions: false,
+  presets: [],
   tracks: [
     { id: 'primary', beats: 4, currentBeat: 0, color: '#FFFFFF', isVisible: true },
     { id: 'secondary', beats: 3, currentBeat: 0, color: '#00FF9C', isVisible: false }

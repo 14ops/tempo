@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { Play, Square, Minus, Plus, Bell, BellOff, Volume2, Settings, ListMusic, Activity } from 'lucide-react';
+import { Play, Square, Minus, Plus, Bell, BellOff, Volume2, Settings, ListMusic, Activity, Sparkles, TrendingUp, TrendingDown, Save } from 'lucide-react';
 import { MetronomeEngine } from './lib/metronomeEngine';
-import { MetronomeState, DEFAULT_STATE } from './types';
+import { MetronomeState, DEFAULT_STATE, Subdivision } from './types';
 import { TapButton } from './components/TapButton';
 import { GeometricMetronome } from './components/GeometricMetronome';
+import { GeminiCommandCenter } from './components/GeminiCommandCenter';
 
 export default function App() {
   const [state, setState] = useState<MetronomeState>(DEFAULT_STATE);
@@ -43,6 +44,21 @@ export default function App() {
     }
   }, [state]);
 
+  useEffect(() => {
+    const savedPresets = localStorage.getItem('peak-metronome-presets');
+    if (savedPresets) {
+      try {
+        setState(prev => ({ ...prev, presets: JSON.parse(savedPresets) }));
+      } catch (e) {
+        console.error("Failed to load presets", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('peak-metronome-presets', JSON.stringify(state.presets));
+  }, [state.presets]);
+
   const togglePlayback = useCallback(() => {
     if (!engineRef.current) return;
     
@@ -60,6 +76,31 @@ export default function App() {
     setState(prev => ({ ...prev, bpm }));
   }, []);
 
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      switch (e.key.toLowerCase()) {
+        case ' ':
+          e.preventDefault();
+          togglePlayback();
+          break;
+        case 'arrowup':
+          e.preventDefault();
+          updateBpm(state.bpm + 1);
+          break;
+        case 'arrowdown':
+          e.preventDefault();
+          updateBpm(state.bpm - 1);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.bpm, togglePlayback, updateBpm]);
+
   const updateTrackBeats = useCallback((trackId: string, beats: number) => {
     const newBeats = Math.min(Math.max(beats, 2), 32);
     setState(prev => ({
@@ -76,6 +117,27 @@ export default function App() {
       tracks: prev.tracks.map(t => t.id === trackId ? { ...t, isVisible: !t.isVisible } : t)
     }));
   }, []);
+
+  const savePreset = () => {
+    const name = prompt("Enter preset name:");
+    if (!name) return;
+    const newPreset = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      state: {
+        bpm: state.bpm,
+        timeSignature: state.timeSignature,
+        soundType: state.soundType,
+        subdivision: state.subdivision,
+        tracks: state.tracks
+      }
+    };
+    setState(prev => ({ ...prev, presets: [...prev.presets, newPreset] }));
+  };
+
+  const loadPreset = (presetState: Partial<MetronomeState>) => {
+    setState(prev => ({ ...prev, ...presetState }));
+  };
 
   if (!isReady) return null;
 
@@ -244,21 +306,51 @@ export default function App() {
             <h3 className="text-[10px] uppercase tracking-[0.3em] text-peak-zinc-600 flex items-center gap-2">
               <ListMusic size={12} /> Setlist
             </h3>
-            <span className="text-[9px] text-peak-zinc-400 border border-peak-zinc-700 px-2 py-1 uppercase tracking-widest cursor-pointer hover:bg-white/5">Edit</span>
+            <button 
+              onClick={savePreset}
+              className="text-[9px] text-peak-zinc-400 border border-peak-zinc-700 px-2 py-1 uppercase tracking-widest cursor-pointer hover:bg-white/5 transition-colors"
+            >
+              <Save size={10} className="inline mr-1" /> Save
+            </button>
           </div>
 
-          <div className="flex-1 space-y-8">
-            <div className={`border-l-2 pl-6 cursor-pointer transition-all ${state.bpm === 124 ? 'border-peak-zinc-200' : 'border-peak-zinc-800 opacity-40'}`} onClick={() => updateBpm(124)}>
-              <p className="text-[10px] text-peak-zinc-500 mb-1 font-mono">01. Intro Sequence</p>
-              <h4 className="text-white font-medium text-sm tracking-wide">124 BPM — 4/4</h4>
-            </div>
-            <div className={`border-l-2 pl-6 cursor-pointer transition-all ${state.bpm === 96 ? 'border-peak-zinc-200' : 'border-peak-zinc-800 opacity-40'}`} onClick={() => updateBpm(96)}>
-              <p className="text-[10px] text-peak-zinc-500 mb-1 font-mono">02. Main Bridge</p>
-              <h4 className="text-white font-medium text-sm tracking-wide">96 BPM — 4/4</h4>
-            </div>
-            <div className={`border-l-2 pl-6 cursor-pointer transition-all ${state.bpm === 140 ? 'border-peak-zinc-200' : 'border-peak-zinc-800 opacity-40'}`} onClick={() => updateBpm(140)}>
-              <p className="text-[10px] text-peak-zinc-500 mb-1 font-mono">03. Outro Solo</p>
-              <h4 className="text-white font-medium text-sm tracking-wide">140 BPM — 4/4</h4>
+          <div className="flex-1 space-y-8 overflow-y-auto pr-2">
+            {state.presets.length === 0 && (
+              <p className="text-[10px] text-peak-zinc-700 uppercase italic">No saved presets yet.</p>
+            )}
+            {state.presets.map(preset => (
+              <div 
+                key={preset.id}
+                className="border-l-2 border-peak-zinc-800 pl-6 cursor-pointer hover:border-peak-zinc-400 transition-all group" 
+                onClick={() => loadPreset(preset.state)}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-[10px] text-peak-zinc-500 mb-1 font-mono uppercase tracking-tighter">{preset.name}</p>
+                    <h4 className="text-white font-medium text-sm tracking-wide">
+                      {preset.state.bpm} BPM — {preset.state.timeSignature?.beats}/{preset.state.timeSignature?.noteValue}
+                    </h4>
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setState(prev => ({ ...prev, presets: prev.presets.filter(p => p.id !== preset.id) }));
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-[8px] text-red-900 hover:text-red-500 transition-all"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+            
+            <div className="pt-8 border-t border-peak-zinc-900 opacity-30">
+              <p className="text-[10px] text-peak-zinc-700 uppercase mb-4 tracking-widest">Library Samples</p>
+              <div className={`border-l-2 pl-6 cursor-pointer transition-all ${state.bpm === 124 ? 'border-peak-zinc-200' : 'border-peak-zinc-800 opacity-40'}`} onClick={() => updateBpm(124)}>
+                <p className="text-[10px] text-peak-zinc-500 mb-1 font-mono">01. Intro Sequence</p>
+                <h4 className="text-white font-medium text-sm tracking-wide">124 BPM — 4/4</h4>
+              </div>
+              {/* ... other default samples can stay or be removed ... */}
             </div>
           </div>
 
@@ -288,6 +380,55 @@ export default function App() {
                   <button onClick={() => setState(prev => ({ ...prev, accentAudioStyle: prev.accentAudioStyle === 'pitch' ? 'wood' : prev.accentAudioStyle === 'wood' ? 'none' : 'pitch' }))} className="px-2 py-1 border border-peak-zinc-800 text-[8px] hover:text-white uppercase transition-colors">Sound: {state.accentAudioStyle}</button>
                   <button onClick={() => setState(prev => ({ ...prev, accentVisualStyle: prev.accentVisualStyle === 'flash' ? 'pulse' : prev.accentVisualStyle === 'pulse' ? 'both' : prev.accentVisualStyle === 'both' ? 'none' : 'flash' }))} className="px-2 py-1 border border-peak-zinc-800 text-[8px] hover:text-white uppercase transition-colors">Visual: {state.accentVisualStyle}</button>
                 </div>
+              </div>
+            </section>
+
+            <section>
+              <div className="flex justify-between text-[10px] text-peak-zinc-600 uppercase tracking-widest mb-4">
+                <span>Subdivisions</span>
+                <span className="text-peak-zinc-200 uppercase tracking-widest">
+                  {state.subdivision === 1 ? '1/4' : state.subdivision === 2 ? '1/8' : state.subdivision === 3 ? 'Triplet' : '1/16'}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {([1, 2, 3, 4] as Subdivision[]).map((sub) => (
+                  <button
+                    key={sub}
+                    onClick={() => setState(prev => ({ ...prev, subdivision: sub }))}
+                    className={`p-2 border text-[8px] uppercase tracking-tighter transition-all ${state.subdivision === sub ? 'bg-peak-zinc-200 text-black border-peak-zinc-200' : 'bg-transparent text-peak-zinc-500 border-peak-zinc-800 hover:border-peak-zinc-600'}`}
+                  >
+                    {sub === 1 ? '1/4' : sub === 2 ? '1/8' : sub === 3 ? '1/3' : '1/16'}
+                  </button>
+                ))}
+              </div>
+              <button 
+                onClick={() => setState(prev => ({ ...prev, accentSubdivisions: !prev.accentSubdivisions }))}
+                className={`w-full mt-2 py-1.5 border text-[8px] uppercase tracking-widest transition-all ${state.accentSubdivisions ? 'bg-peak-zinc-200 text-black border-peak-zinc-200' : 'bg-transparent text-peak-zinc-700 border-peak-zinc-800'}`}
+              >
+                Accent Sub: {state.accentSubdivisions ? 'ON' : 'OFF'}
+              </button>
+            </section>
+
+            <GeminiCommandCenter 
+              onStateUpdate={(update) => setState(prev => ({ ...prev, ...update }))}
+              currentState={state}
+            />
+
+            <section>
+              <div className="flex justify-between text-[10px] text-peak-zinc-600 uppercase tracking-widest mb-4">
+                <span>Tempo Ramp</span>
+                {state.tempoRamp && <span className="text-peak-zinc-200">Bar {state.tempoRamp.currentBar}/{state.tempoRamp.bars}</span>}
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setState(prev => ({ 
+                    ...prev, 
+                    tempoRamp: prev.tempoRamp ? undefined : { targetBpm: prev.bpm + 20, bars: 16, currentBar: 0 } 
+                  }))}
+                  className={`flex-1 py-2 border text-[8px] uppercase tracking-widest transition-all ${state.tempoRamp ? 'bg-peak-zinc-200 text-black border-peak-zinc-200' : 'bg-transparent text-peak-zinc-500 border-peak-zinc-800'}`}
+                >
+                  {state.tempoRamp ? 'Cancel Ramp' : 'Auto Accelerando'}
+                </button>
               </div>
             </section>
 

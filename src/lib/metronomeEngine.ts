@@ -8,6 +8,7 @@ export class MetronomeEngine {
   private scheduleAheadTime: number = 0.1; // How far ahead to schedule audio (in seconds)
   private state: MetronomeState;
   private onBeat: (beat: number, tracks: MetronomeTrack[]) => void;
+  private subdivisionBeat: number = 0;
 
   constructor(state: MetronomeState, onBeat: (beat: number, tracks: MetronomeTrack[]) => void) {
     this.state = state;
@@ -20,93 +21,132 @@ export class MetronomeEngine {
 
   private nextNote() {
     const secondsPerBeat = 60.0 / this.state.bpm;
-    this.nextNoteTime += secondsPerBeat;
+    const subdivisionFactor = this.state.subdivision || 1;
+    this.nextNoteTime += secondsPerBeat / subdivisionFactor;
 
-    // Update main beat
-    this.state.currentBeat++;
-    if (this.state.currentBeat > this.state.timeSignature.beats) {
-      this.state.currentBeat = 1;
-    }
-
-    // Update track beats
-    this.state.tracks = this.state.tracks.map(track => {
-      let nextBeat = track.currentBeat + 1;
-      if (nextBeat > track.beats) {
-        nextBeat = 1;
+    this.subdivisionBeat = (this.subdivisionBeat + 1) % subdivisionFactor;
+    
+    if (this.subdivisionBeat === 0) {
+      // Handle Tempo Ramp
+      if (this.state.tempoRamp && this.state.currentBeat === this.state.timeSignature.beats) {
+        const ramp = this.state.tempoRamp;
+        if (ramp.currentBar < ramp.bars) {
+          const bpmDiff = ramp.targetBpm - this.state.bpm;
+          const remainingBars = ramp.bars - ramp.currentBar;
+          const bpmStep = bpmDiff / remainingBars;
+          
+          this.state.bpm = Math.round(this.state.bpm + bpmStep);
+          this.state.tempoRamp = { ...ramp, currentBar: ramp.currentBar + 1 };
+        } else {
+          // Ramp finished
+          this.state.tempoRamp = undefined;
+        }
       }
-      return { ...track, currentBeat: nextBeat };
-    });
+
+      // Update main beat
+      this.state.currentBeat++;
+      if (this.state.currentBeat > this.state.timeSignature.beats) {
+        this.state.currentBeat = 1;
+      }
+
+      // Update track beats
+      this.state.tracks = this.state.tracks.map(track => {
+        let nextBeat = track.currentBeat + 1;
+        if (nextBeat > track.beats) {
+          nextBeat = 1;
+        }
+        return { ...track, currentBeat: nextBeat };
+      });
+    }
   }
 
   private scheduleNote(beatNumber: number, time: number) {
     if (!this.audioContext) return;
 
-    // We play a sound if the primary track beats, OR if any visible track beats (if we wanted unique sounds per track)
-    // For now, let's just trigger the sound on every shared beat.
-    // In many polyrhythm apps, each track has its own sound.
-    
-    // Play sound for each active track vertex
-    this.state.tracks.forEach(track => {
-      if (!track.isVisible) return;
-      
-      const osc = this.audioContext!.createOscillator();
-      const envelope = this.audioContext!.createGain();
-      
-      // Slightly different pitch for different tracks if needed
-      const isAccent = track.currentBeat === 1 && this.state.accentFirstBeat;
-      const baseFreq = track.id === 'primary' ? 800 : 600;
+    const isMainBeat = this.subdivisionBeat === 0;
 
-      let pitchOffset = 0;
-      if (isAccent) {
-        if (this.state.accentAudioStyle === 'pitch') pitchOffset = 200;
-        else if (this.state.accentAudioStyle === 'wood') pitchOffset = 500;
+    if (isMainBeat) {
+      // Play sound for each active track vertex
+      this.state.tracks.forEach(track => {
+        if (!track.isVisible) return;
+        
+        const osc = this.audioContext!.createOscillator();
+        const envelope = this.audioContext!.createGain();
+        
+        // Slightly different pitch for different tracks if needed
+        const isAccent = track.currentBeat === 1 && this.state.accentFirstBeat;
+        const baseFreq = track.id === 'primary' ? 800 : 600;
+
+        let pitchOffset = 0;
+        if (isAccent) {
+          if (this.state.accentAudioStyle === 'pitch') pitchOffset = 200;
+          else if (this.state.accentAudioStyle === 'wood') pitchOffset = 500;
+        }
+        
+        // Profiles
+        switch (this.state.soundType) {
+          case 'woodblock':
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(isAccent ? (baseFreq + 400 + pitchOffset) : baseFreq + 400, time);
+            envelope.gain.setValueAtTime(0.5, time);
+            envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+            break;
+          case 'cowbell':
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(isAccent ? (560 + pitchOffset) : 560, time);
+            envelope.gain.setValueAtTime(0.6, time);
+            envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+            break;
+          case 'beep':
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(isAccent ? (500 + pitchOffset) : 500, time);
+            envelope.gain.setValueAtTime(0.15, time);
+            envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+            break;
+          case 'electronic':
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(isAccent ? (100 + pitchOffset / 5) : 100, time);
+            envelope.gain.setValueAtTime(0.7, time);
+            envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+            break;
+          case 'classic':
+          default:
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(isAccent ? (baseFreq + pitchOffset) : baseFreq, time);
+            envelope.gain.setValueAtTime(0.5, time);
+            envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+            break;
+        }
+
+        osc.connect(envelope);
+        envelope.connect(this.audioContext!.destination);
+        osc.start(time);
+        osc.stop(time + 0.2);
+      });
+    } else {
+      // Subdivision tick sound
+      if (this.state.tracks.find(t => t.id === 'primary')?.isVisible) {
+        const osc = this.audioContext!.createOscillator();
+        const envelope = this.audioContext!.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, time);
+        envelope.gain.setValueAtTime(this.state.accentSubdivisions ? 0.3 : 0.1, time);
+        envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
+
+        osc.connect(envelope);
+        envelope.connect(this.audioContext!.destination);
+        osc.start(time);
+        osc.stop(time + 0.05);
       }
-      
-      // Profiles
-      switch (this.state.soundType) {
-        case 'woodblock':
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(isAccent ? (baseFreq + 400 + pitchOffset) : baseFreq + 400, time);
-          envelope.gain.setValueAtTime(0.5, time);
-          envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
-          break;
-        case 'cowbell':
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(isAccent ? (560 + pitchOffset) : 560, time);
-          envelope.gain.setValueAtTime(0.6, time);
-          envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
-          break;
-        case 'beep':
-          osc.type = 'square';
-          osc.frequency.setValueAtTime(isAccent ? (500 + pitchOffset) : 500, time);
-          envelope.gain.setValueAtTime(0.15, time);
-          envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
-          break;
-        case 'electronic':
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(isAccent ? (100 + pitchOffset / 5) : 100, time);
-          envelope.gain.setValueAtTime(0.7, time);
-          envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-          break;
-        case 'classic':
-        default:
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(isAccent ? (baseFreq + pitchOffset) : baseFreq, time);
-          envelope.gain.setValueAtTime(0.5, time);
-          envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-          break;
-      }
+    }
 
-      osc.connect(envelope);
-      envelope.connect(this.audioContext!.destination);
-      osc.start(time);
-      osc.stop(time + 0.2);
-    });
-
-    // Update visual state on the main thread
-    setTimeout(() => {
-      this.onBeat(beatNumber, [...this.state.tracks]);
-    }, (time - this.audioContext.currentTime) * 1000);
+    // Update visual state on the main thread only on main beats
+    if (isMainBeat) {
+      setTimeout(() => {
+        this.onBeat(beatNumber, [...this.state.tracks]);
+      }, (time - this.audioContext!.currentTime) * 1000);
+    }
   }
 
   private scheduler() {
