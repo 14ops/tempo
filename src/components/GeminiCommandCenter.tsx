@@ -42,7 +42,7 @@ export function GeminiCommandCenter({ onStateUpdate, currentState }: GeminiComma
             properties: {
               bpm: { type: Type.NUMBER },
               soundType: { type: Type.STRING, enum: ['classic', 'woodblock', 'cowbell', 'beep', 'electronic'] },
-              subdivision: { type: Type.NUMBER, enum: [1, 2, 3, 4] },
+              subdivision: { type: Type.NUMBER, description: "1 (none), 2 (8ths), 3 (triplets), or 4 (16ths)" },
               visualStyle: { type: Type.STRING, enum: ['geometry', 'waveform', 'minimal'] },
               timeSignature: {
                 type: Type.OBJECT,
