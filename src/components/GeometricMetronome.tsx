@@ -174,6 +174,58 @@ export function GeometricMetronome({ tracks, isPlaying, bpm, visualStyle, accent
             );
           }
 
+          if (visualStyle === 'pendulum') {
+            const angleRange = Math.PI / 3; // 60 degrees total swing
+            // Calculate a smooth oscillation based on the current beat and progress within the bar
+            // Actually, we can use track.currentBeat and sync it
+            const t = ((track.currentBeat - 1) / track.beats);
+            const swingAngle = Math.sin(t * Math.PI * 2 - Math.PI / 2) * angleRange;
+            
+            const armLength = 140;
+            const pivotX = center;
+            const pivotY = center - 80;
+            const endX = pivotX + armLength * Math.sin(swingAngle);
+            const endY = pivotY + armLength * Math.cos(swingAngle);
+
+            return (
+              <g key={track.id}>
+                {/* Support structure */}
+                <circle cx={pivotX} cy={pivotY} r="4" fill={track.color} opacity="0.3" />
+                
+                {/* Arm */}
+                <motion.line
+                  x1={pivotX}
+                  y1={pivotY}
+                  x2={endX}
+                  y2={endY}
+                  stroke={track.color}
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  animate={{
+                    x2: pivotX + armLength * Math.sin(swingAngle),
+                    y2: pivotY + armLength * Math.cos(swingAngle)
+                  }}
+                  transition={{ duration: 60/bpm, ease: "linear" }}
+                />
+                
+                {/* Weight */}
+                <motion.circle
+                  cx={endX}
+                  cy={endY}
+                  r="12"
+                  fill={track.color}
+                  animate={{
+                    cx: pivotX + armLength * Math.sin(swingAngle),
+                    cy: pivotY + armLength * Math.cos(swingAngle),
+                    scale: track.currentBeat === 1 ? [1, 1.2, 1] : 1
+                  }}
+                  transition={{ duration: 60/bpm, ease: "linear" }}
+                  style={{ filter: `url(#glow-${track.id})` }}
+                />
+              </g>
+            );
+          }
+
           if (visualStyle === 'minimal') {
              return (
                <g key={track.id}>

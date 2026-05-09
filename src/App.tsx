@@ -24,6 +24,30 @@ export default function App() {
     return () => engineRef.current?.stop();
   }, []);
 
+  // Wake Lock implementation
+  useEffect(() => {
+    let wakeLock: any = null;
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await (navigator as any).wakeLock.request('screen');
+        }
+      } catch (err) {
+        console.error(`${err.name}, ${err.message}`);
+      }
+    };
+
+    if (state.isPlaying) {
+      requestWakeLock();
+    } else if (wakeLock) {
+      wakeLock.release();
+    }
+
+    return () => {
+      if (wakeLock) wakeLock.release();
+    };
+  }, [state.isPlaying]);
+
   // Haptic feedback and visual pulse effect
   useEffect(() => {
     if (state.isPlaying && state.currentBeat > 0) {
@@ -360,8 +384,8 @@ export default function App() {
                 <span>Display Style</span>
                 <span className="text-peak-zinc-200 uppercase tracking-widest">{state.visualStyle}</span>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {(['geometry', 'waveform', 'minimal'] as const).map((style) => (
+              <div className="grid grid-cols-4 gap-2">
+                {(['geometry', 'waveform', 'minimal', 'pendulum'] as const).map((style) => (
                   <button
                     key={style}
                     onClick={() => setState(prev => ({ ...prev, visualStyle: style }))}
@@ -407,6 +431,23 @@ export default function App() {
               >
                 Accent Sub: {state.accentSubdivisions ? 'ON' : 'OFF'}
               </button>
+            </section>
+
+            <section>
+              <div className="flex justify-between text-[10px] text-peak-zinc-600 uppercase tracking-widest mb-4">
+                <span>Inner Clock Training</span>
+                <span className="text-peak-zinc-200">Mute {Math.round(state.muteProbability * 100)}%</span>
+              </div>
+              <input 
+                type="range"
+                min="0"
+                max="0.8"
+                step="0.1"
+                value={state.muteProbability}
+                onChange={(e) => setState(prev => ({ ...prev, muteProbability: parseFloat(e.target.value) }))}
+                className="w-full accent-peak-zinc-200 cursor-pointer opacity-50 hover:opacity-100 transition-opacity"
+              />
+              <p className="text-[7px] text-peak-zinc-700 uppercase tracking-tighter mt-2">Randomly mutes beats to test your timing.</p>
             </section>
 
             <GeminiCommandCenter 

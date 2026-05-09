@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
 import { MetronomeState } from '../types';
 import { Sparkles, Loader2, Send } from 'lucide-react';
 
@@ -7,6 +6,24 @@ interface GeminiCommandCenterProps {
   onStateUpdate: (newState: Partial<MetronomeState>) => void;
   currentState: MetronomeState;
 }
+
+const RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    bpm: { type: "number" },
+    soundType: { type: "string" },
+    subdivision: { type: "number" },
+    visualStyle: { type: "string" },
+    timeSignature: {
+      type: "object",
+      properties: {
+        beats: { type: "number" },
+        noteValue: { type: "number" }
+      }
+    },
+    accentFirstBeat: { type: "boolean" },
+  }
+};
 
 export function GeminiCommandCenter({ onStateUpdate, currentState }: GeminiCommandCenterProps) {
   const [prompt, setPrompt] = useState('');
@@ -21,60 +38,24 @@ export function GeminiCommandCenter({ onStateUpdate, currentState }: GeminiComma
     setError(null);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: (process.env as any).GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Set up the metronome for the following request: "${prompt}". 
-        Current state: BPM=${currentState.bpm}, Time Signature=${currentState.timeSignature.beats}/${currentState.timeSignature.noteValue}.
-        Available sound types: classic, woodblock, cowbell, beep, electronic.
-        Available subdivisions: 1 (none), 2 (8ths), 3 (triplets), 4 (16ths).
-        Available visual styles: geometry, waveform, minimal.
-        
-        Rules:
-        - Return only JSON.
-        - Only include fields that need to change.
-        - If a genre like "blues shuffle" is mentioned, set subdivisions to 3 (triplets) and appropriate BPM.
-        - If "polyrhythm" is mentioned, configure the tracks array.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              bpm: { type: Type.NUMBER },
-              soundType: { type: Type.STRING, enum: ['classic', 'woodblock', 'cowbell', 'beep', 'electronic'] },
-              subdivision: { type: Type.NUMBER, description: "1 (none), 2 (8ths), 3 (triplets), or 4 (16ths)" },
-              visualStyle: { type: Type.STRING, enum: ['geometry', 'waveform', 'minimal'] },
-              timeSignature: {
-                type: Type.OBJECT,
-                properties: {
-                  beats: { type: Type.NUMBER },
-                  noteValue: { type: Type.NUMBER }
-                }
-              },
-              accentFirstBeat: { type: Type.BOOLEAN },
-              tracks: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    beats: { type: Type.NUMBER },
-                    isVisible: { type: Type.BOOLEAN },
-                    color: { type: Type.STRING }
-                  }
-                }
-              }
-            }
-          }
-        }
+      const response = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          currentState,
+          schema: RESPONSE_SCHEMA
+        })
       });
 
-      const result = JSON.parse(response.text || '{}');
+      if (!response.ok) throw new Error("Server error");
+      
+      const result = await response.json();
       onStateUpdate(result);
       setPrompt('');
     } catch (err: any) {
       console.error(err);
-      setError("Failed to apply command. Please try again.");
+      setError("Failed to reach Peak AI Coach.");
     } finally {
       setIsLoading(false);
     }

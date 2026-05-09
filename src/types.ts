@@ -14,7 +14,7 @@ export type MetronomeTrack = {
   isVisible: boolean;
 };
 
-export type VisualStyle = 'geometry' | 'waveform' | 'minimal';
+export type VisualStyle = 'geometry' | 'waveform' | 'minimal' | 'pendulum';
 
 export type AccentAudioStyle = 'pitch' | 'wood' | 'none';
 export type AccentVisualStyle = 'flash' | 'pulse' | 'both' | 'none';
@@ -32,6 +32,7 @@ export type MetronomeState = {
   visualStyle: VisualStyle;
   subdivision: Subdivision;
   accentSubdivisions: boolean;
+  muteProbability: number; // 0 to 1
   tempoRamp?: { targetBpm: number; bars: number; currentBar: number };
   presets: { id: string; name: string; state: Partial<MetronomeState> }[];
 };
@@ -53,4 +54,5 @@ export const DEFAULT_STATE: MetronomeState = {
     { id: 'secondary', beats: 3, currentBeat: 0, color: '#00FF9C', isVisible: false }
   ],
   visualStyle: 'geometry',
+  muteProbability: 0,
 };

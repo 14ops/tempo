@@ -10,9 +10,33 @@ export class MetronomeEngine {
   private onBeat: (beat: number, tracks: MetronomeTrack[]) => void;
   private subdivisionBeat: number = 0;
 
+  private timerWorker: Worker | null = null;
+
   constructor(state: MetronomeState, onBeat: (beat: number, tracks: MetronomeTrack[]) => void) {
     this.state = state;
     this.onBeat = onBeat;
+
+    // Initialize Timer Worker to prevent throttling in background
+    const blob = new Blob([`
+      let timerID = null;
+      let interval = 25;
+      self.onmessage = (e) => {
+        if (e.data === "start") {
+          timerID = setInterval(() => postMessage("tick"), interval);
+        } else if (e.data === "stop") {
+          clearInterval(timerID);
+          timerID = null;
+        } else if (typeof e.data === "number") {
+          interval = e.data;
+          if (timerID) {
+            clearInterval(timerID);
+            timerID = setInterval(() => postMessage("tick"), interval);
+          }
+        }
+      };
+    `], { type: "application/javascript" });
+    this.timerWorker = new Worker(URL.createObjectURL(blob));
+    this.timerWorker.onmessage = () => this.scheduler();
   }
 
   public updateState(newState: Partial<MetronomeState>) {
@@ -66,6 +90,15 @@ export class MetronomeEngine {
     const isMainBeat = this.subdivisionBeat === 0;
 
     if (isMainBeat) {
+      // Inner Clock Muting Logic
+      if (this.state.muteProbability > 0 && Math.random() < this.state.muteProbability) {
+        // Skip audio but still update visual state
+        setTimeout(() => {
+          this.onBeat(beatNumber, [...this.state.tracks]);
+        }, (time - this.audioContext!.currentTime) * 1000);
+        return;
+      }
+
       // Play sound for each active track vertex
       this.state.tracks.forEach(track => {
         if (!track.isVisible) return;
@@ -87,25 +120,25 @@ export class MetronomeEngine {
         switch (this.state.soundType) {
           case 'woodblock':
             osc.type = 'sine';
-            osc.frequency.setValueAtTime(isAccent ? (baseFreq + 400 + pitchOffset) : baseFreq + 400, time);
+            osc.frequency.setValueAtTime(isAccent ? (baseFreq + 401 + pitchOffset) : baseFreq + 401, time);
             envelope.gain.setValueAtTime(0.5, time);
             envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
             break;
           case 'cowbell':
             osc.type = 'triangle';
-            osc.frequency.setValueAtTime(isAccent ? (560 + pitchOffset) : 560, time);
+            osc.frequency.setValueAtTime(isAccent ? (561 + pitchOffset) : 561, time);
             envelope.gain.setValueAtTime(0.6, time);
             envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
             break;
           case 'beep':
             osc.type = 'square';
-            osc.frequency.setValueAtTime(isAccent ? (500 + pitchOffset) : 500, time);
+            osc.frequency.setValueAtTime(isAccent ? (501 + pitchOffset) : 501, time);
             envelope.gain.setValueAtTime(0.15, time);
             envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
             break;
           case 'electronic':
             osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(isAccent ? (100 + pitchOffset / 5) : 100, time);
+            osc.frequency.setValueAtTime(isAccent ? (101 + pitchOffset / 5) : 101, time);
             envelope.gain.setValueAtTime(0.7, time);
             envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
             break;
@@ -156,7 +189,6 @@ export class MetronomeEngine {
       this.scheduleNote(this.state.currentBeat, this.nextNoteTime);
       this.nextNote();
     }
-    this.timerID = window.setTimeout(() => this.scheduler(), this.lookahead);
   }
 
   public start() {
@@ -169,13 +201,11 @@ export class MetronomeEngine {
     this.state.isPlaying = true;
     this.state.currentBeat = 1;
     this.nextNoteTime = this.audioContext.currentTime + 0.05;
-    this.scheduler();
+    this.timerWorker?.postMessage("start");
   }
 
   public stop() {
     this.state.isPlaying = false;
-    if (this.timerID) {
-      window.clearTimeout(this.timerID);
-    }
+    this.timerWorker?.postMessage("stop");
   }
 }
